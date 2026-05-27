@@ -45,28 +45,39 @@
         window.nuevo = async () => {
             let n = document.getElementById('nom').value.trim();
             if(n) {
-                await addDoc(jugadoresCol, { n: n, f: [], t: Date.now() });
+                // Inicializamos los nuevos campos como arreglos vacíos para respetar tu lógica de protección anti-clics
+                await addDoc(jugadoresCol, { n: n, f: [], dados: [], partidas: [], t: Date.now() });
                 document.getElementById('nom').value = "";
             }
         };
 
-        window.sumarCapote = async (id) => {
+        // LÓGICA UNIFICADA Y ULTRAESTABLE PARA CUALQUIER MÉTRICA
+        window.sumarMetrica = async (id, campo) => {
             bloqueadoPorClic = true; 
             
             let d = new Date();
-            // SOLUCIÓN: Agregamos Date.now() para que ningún clic sea idéntico y Firebase los guarde TODOS
             let codigoUnico = Date.now();
-            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes() + " - " + codigoUnico;
+            let valorRegistro = "";
+
+            // Mantenemos el formato detallado para los capotes recibidos (f)
+            if (campo === 'f') {
+                valorRegistro = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes() + " - " + codigoUnico;
+            } else {
+                // Registro simplificado pero único para 'dados' y 'partidas'
+                valorRegistro = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " - " + codigoUnico;
+            }
             
             const jugador = listaJugadoresMemoria.find(j => j.id === id);
             if (jugador) {
-                if (!jugador.f) jugador.f = [];
-                jugador.f.push(fecha);
-                dibujarSoloNumeros(listaJugadoresMemoria); 
+                if (!jugador[campo]) jugador[campo] = [];
+                jugador[campo].push(valorRegistro);
+                dibujarSoloNumeros(listaJugadoresMemoria); // Respuesta visual instantánea
             }
 
             const ref = doc(db, "jugadores_albarico", id);
-            await updateDoc(ref, { f: arrayUnion(fecha) });
+            let updateData = {};
+            updateData[campo] = arrayUnion(valorRegistro);
+            await updateDoc(ref, updateData);
 
             clearTimeout(timeoutOrdenamiento);
             timeoutOrdenamiento = setTimeout(async () => {
@@ -75,6 +86,8 @@
                 const snapshot = await getDocs(jugadoresCol);
                 let lista = [];
                 snapshot.forEach(doc => lista.push({id: doc.id, ...doc.data()}));
+                
+                // El ordenamiento principal sigue basándose estrictamente en los Capotes Recibidos (f)
                 lista.sort((a, b) => (b.f ? b.f.length : 0) - (a.f ? a.f.length : 0));
                 listaJugadoresMemoria = lista;
                 dibujarCompleto(lista);
@@ -103,13 +116,21 @@
         }
 
         function dibujarSoloNumeros(datos) {
-            datos.forEach((j, i) => {
-                let total = j.f ? j.f.length : 0;
-                let ray = "卌 ".repeat(Math.floor(total/5)) + "|".repeat(total%5) || "Sin capotes";
+            datos.forEach((j) => {
+                let totalRecibidos = j.f ? j.f.length : 0;
+                let totalDados = j.dados ? j.dados.length : 0;
+                let totalPartidas = j.partidas ? j.partidas.length : 0;
+
+                let ray = "卌 ".repeat(Math.floor(totalRecibidos/5)) + "|".repeat(totalRecibidos%5) || "Sin capotes";
                 
                 const contenedorRayitas = document.getElementById(`rayas-${j.id}`);
                 if (contenedorRayitas) {
-                    contenedorRayitas.innerText = `${ray} (${total})`;
+                    contenedorRayitas.innerText = `${ray} (${totalRecibidos})`;
+                }
+
+                const contenedorContadores = document.getElementById(`stats-${j.id}`);
+                if (contenedorContadores) {
+                    contenedorContadores.innerHTML = `💀 ${totalRecibidos} &nbsp;&nbsp;&nbsp;&nbsp; 👟 ${totalDados} &nbsp;&nbsp;&nbsp;&nbsp; 🏆 ${totalPartidas}`;
                 }
             });
         }
@@ -117,21 +138,37 @@
         function dibujarCompleto(datos) {
             let html = "";
             datos.forEach((j, i) => {
-                let total = j.f ? j.f.length : 0;
-                let ray = "卌 ".repeat(Math.floor(total/5)) + "|".repeat(total%5) || "Sin capotes";
-                let botonAdmin = (rolActual === "admin") ? `<button class="btn-capote" onclick="sumarCapote('${j.id}')">+ CAPOTE</button>` : "";
+                let totalRecibidos = j.f ? j.f.length : 0;
+                let totalDados = j.dados ? j.dados.length : 0;
+                let totalPartidas = j.partidas ? j.partidas.length : 0;
+
+                let ray = "卌 ".repeat(Math.floor(totalRecibidos/5)) + "|".repeat(totalRecibidos%5) || "Sin capotes";
+                
+                // Botonera de administración compacta alineada a la derecha
+                let botonesAdmin = "";
+                if (rolActual === "admin") {
+                    botonesAdmin = `
+                    <div class="admin-actions">
+                        <button class="btn-stat btn-recibido" onclick="sumarMetrica('${j.id}', 'f')">+1 💀</button>
+                        <button class="btn-stat btn-dado" onclick="sumarMetrica('${j.id}', 'dados')">+1 👟</button>
+                        <button class="btn-stat btn-partida" onclick="sumarMetrica('${j.id}', 'partidas')">+1 🏆</button>
+                    </div>`;
+                }
 
                 html += `<div class="card">
-                    <div class="flex">
+                    <div class="flex" style="align-items: center;">
                         <div onclick="document.getElementById('hist-${i}').style.display = (document.getElementById('hist-${i}').style.display === 'block' ? 'none' : 'block')" style="flex-grow:1; cursor:pointer;">
                             <span class="nombre">${j.n}</span>
-                            <div class="rayitas" id="rayas-${j.id}">${ray} (${total})</div>
+                            <div class="rayitas" id="rayas-${j.id}">${ray} (${totalRecibidos})</div>
+                            <div class="stats-container" id="stats-${j.id}">
+                                💀 ${totalRecibidos} &nbsp;&nbsp;&nbsp;&nbsp; 👟 ${totalDados} &nbsp;&nbsp;&nbsp;&nbsp; 🏆 ${totalPartidas}
+                            </div>
                         </div>
-                        ${botonAdmin}
+                        ${botonesAdmin}
                     </div>
                     <div class="historial" id="hist-${i}">
                         <strong>Días que le metieron las 75:</strong><br>
-                        ${total > 0 ? j.f.map(f => "💀 " + f.split(" - ")[0]).join("<br>") : "Limpio por ahora."}
+                        ${totalRecibidos > 0 ? j.f.map(f => "💀 " + f.split(" - ")[0]).join("<br>") : "Limpio por ahora."}
                     </div>
                 </div>`;
             });
@@ -151,7 +188,16 @@
         .flex { display: flex; justify-content: space-between; align-items: center; }
         .nombre { font-size: 1.2rem; font-weight: bold; color: #58a6ff; text-transform: uppercase; }
         .rayitas { color: #f1e05a; font-size: 1.3rem; letter-spacing: 2px; margin-top: 5px; }
-        .btn-capote { background: #da3633; color: white; border: none; padding: 12px 18px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        
+        /* Nuevos Estilos para las Estadísticas y Botones */
+        .stats-container { color: #c9d1d9; font-size: 1rem; margin-top: 8px; font-weight: 500; }
+        .admin-actions { display: flex; gap: 6px; }
+        .btn-stat { color: white; border: none; padding: 10px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.9rem; transition: opacity 0.2s; }
+        .btn-stat:hover { opacity: 0.85; }
+        .btn-recibido { background: #da3633; }
+        .btn-dado { background: #238636; }
+        .btn-partida { background: #1f6feb; }
+
         input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #30363d; background: #161b22; color: white; font-size: 1rem; }
         .btn-entrar { background: #f85149; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; width: 92%; cursor: pointer; }
         .historial { display: none; font-size: 0.85rem; color: #8b949e; margin-top: 10px; padding: 10px; border-top: 1px dotted #30363d; background: #0d1117; }
