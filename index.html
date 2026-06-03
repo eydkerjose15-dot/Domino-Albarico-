@@ -6,7 +6,7 @@
     <title>Dominó de Albarico</title>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, getDocs, updateDoc, doc, arrayUnion, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, updateDoc, doc, arrayUnion, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyA_4QmxxzA2ui9cNSu_2G1i-b2N-QqjdJc",
@@ -22,13 +22,11 @@
         const jugadoresCol = collection(db, "jugadores_albarico");
 
         let rolActual = "jugador";
-        let listaJugadoresMemoria = [];
-        let timeoutOrdenamiento = null;
-        let bloqueadoPorClic = false;
 
         window.validarAcceso = () => {
             const u = document.getElementById('user').value.trim().toLowerCase();
             const p = document.getElementById('pass').value.trim();
+            // Actualizadas a tus nuevas contraseñas seguras para evitar bloqueos de Google
             if (u === "admin" && p === "12345678910") { rolActual = "admin"; abrirApp(); }
             else if (u === "jugador" && p === "123456789") { rolActual = "jugador"; abrirApp(); }
             else { alert("Usuario o clave incorrectos"); }
@@ -39,136 +37,68 @@
             document.getElementById('app-content').style.display = 'block';
             document.getElementById('rol-badge').innerText = "MODO: " + rolActual.toUpperCase();
             document.getElementById('admin-ui').style.display = (rolActual === "admin") ? 'block' : 'none';
-            escucharDatosRealtime();
+            escucharDatos();
         }
 
         window.nuevo = async () => {
             let n = document.getElementById('nom').value.trim();
             if(n) {
-                // Inicializamos los nuevos campos como arreglos vacíos para respetar tu lógica de protección anti-clics
-                await addDoc(jugadoresCol, { n: n, f: [], dados: [], partidas: [], t: Date.now() });
+                await addDoc(jugadoresCol, { n: n, f: [], t: Date.now() });
                 document.getElementById('nom').value = "";
             }
         };
 
-        // LÓGICA UNIFICADA Y ULTRAESTABLE PARA CUALQUIER MÉTRICA
-        window.sumarMetrica = async (id, campo) => {
-            bloqueadoPorClic = true; 
-            
+        window.sumarCapote = async (id) => {
             let d = new Date();
-            let codigoUnico = Date.now();
-            let valorRegistro = "";
-
-            // Mantenemos el formato detallado para los capotes recibidos (f)
-            if (campo === 'f') {
-                valorRegistro = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes() + " - " + codigoUnico;
-            } else {
-                // Registro simplificado pero único para 'dados' y 'partidas'
-                valorRegistro = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " - " + codigoUnico;
-            }
-            
-            const jugador = listaJugadoresMemoria.find(j => j.id === id);
-            if (jugador) {
-                if (!jugador[campo]) jugador[campo] = [];
-                jugador[campo].push(valorRegistro);
-                dibujarSoloNumeros(listaJugadoresMemoria); // Respuesta visual instantánea
-            }
-
+            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes();
             const ref = doc(db, "jugadores_albarico", id);
-            let updateData = {};
-            updateData[campo] = arrayUnion(valorRegistro);
-            await updateDoc(ref, updateData);
-
-            clearTimeout(timeoutOrdenamiento);
-            timeoutOrdenamiento = setTimeout(async () => {
-                bloqueadoPorClic = false;
-                timeoutOrdenamiento = null;
-                const snapshot = await getDocs(jugadoresCol);
-                let lista = [];
-                snapshot.forEach(doc => lista.push({id: doc.id, ...doc.data()}));
-                
-                // El ordenamiento principal sigue basándose estrictamente en los Capotes Recibidos (f)
-                lista.sort((a, b) => (b.f ? b.f.length : 0) - (a.f ? a.f.length : 0));
-                listaJugadoresMemoria = lista;
-                dibujarCompleto(lista);
-            }, 1500);
+            await updateDoc(ref, { f: arrayUnion(fecha) });
         };
 
         window.reseteo = async () => {
             if(confirm("¿Seguro que quieres borrar todas las zapateras del año?")) {
                 const querySnapshot = await getDocs(jugadoresCol);
-                for (const docSnapshot of querySnapshot.docs) {
-                    await deleteDoc(doc(db, "jugadores_albarico", docSnapshot.id));
-                }
+                querySnapshot.forEach(async (d) => { await deleteDoc(doc(db, "jugadores_albarico", d.id)); });
             }
         };
 
-        function escucharDatosRealtime() {
+        function escucharDatos() {
+            // Se añade el manejador de errores para detectar si Firebase bloquea la conexión
             onSnapshot(jugadoresCol, (snapshot) => {
-                if (bloqueadoPorClic) return; 
-                
                 let lista = [];
                 snapshot.forEach(doc => lista.push({id: doc.id, ...doc.data()}));
-                lista.sort((a, b) => (b.f ? b.f.length : 0) - (a.f ? a.f.length : 0));
-                listaJugadoresMemoria = lista;
-                dibujarCompleto(lista);
+                lista.sort((a, b) => b.f.length - a.f.length);
+                dibujar(lista);
+            }, (error) => {
+                console.error("Error en Firebase: ", error);
+                document.getElementById('lista').innerHTML = `
+                    <p style='text-align:center; color:#f85149; font-weight:bold; padding:20px;'>
+                        ⚠️ Error de conexión con la base de datos.<br>
+                        <span style='color:#8b949e; font-weight:normal; font-size:0.9rem;'>
+                            Es muy probable que las Reglas de Seguridad de tu consola Firebase hayan expirado (Modo Prueba de 30 días).
+                        </span>
+                    </p>`;
             });
         }
 
-        function dibujarSoloNumeros(datos) {
-            datos.forEach((j) => {
-                let totalRecibidos = j.f ? j.f.length : 0;
-                let totalDados = j.dados ? j.dados.length : 0;
-                let totalPartidas = j.partidas ? j.partidas.length : 0;
-
-                let ray = "卌 ".repeat(Math.floor(totalRecibidos/5)) + "|".repeat(totalRecibidos%5) || "Sin capotes";
-                
-                const contenedorRayitas = document.getElementById(`rayas-${j.id}`);
-                if (contenedorRayitas) {
-                    contenedorRayitas.innerText = `${ray} (${totalRecibidos})`;
-                }
-
-                const contenedorContadores = document.getElementById(`stats-${j.id}`);
-                if (contenedorContadores) {
-                    contenedorContadores.innerHTML = `💀 ${totalRecibidos} &nbsp;&nbsp;&nbsp;&nbsp; 👟 ${totalDados} &nbsp;&nbsp;&nbsp;&nbsp; 🏆 ${totalPartidas}`;
-                }
-            });
-        }
-
-        function dibujarCompleto(datos) {
+        function dibujar(datos) {
             let html = "";
             datos.forEach((j, i) => {
-                let totalRecibidos = j.f ? j.f.length : 0;
-                let totalDados = j.dados ? j.dados.length : 0;
-                let totalPartidas = j.partidas ? j.partidas.length : 0;
-
-                let ray = "卌 ".repeat(Math.floor(totalRecibidos/5)) + "|".repeat(totalRecibidos%5) || "Sin capotes";
-                
-                // Botonera de administración compacta alineada a la derecha
-                let botonesAdmin = "";
-                if (rolActual === "admin") {
-                    botonesAdmin = `
-                    <div class="admin-actions">
-                        <button class="btn-stat btn-recibido" onclick="sumarMetrica('${j.id}', 'f')">+1 💀</button>
-                        <button class="btn-stat btn-dado" onclick="sumarMetrica('${j.id}', 'dados')">+1 👟</button>
-                        <button class="btn-stat btn-partida" onclick="sumarMetrica('${j.id}', 'partidas')">+1 🏆</button>
-                    </div>`;
-                }
+                let total = j.f.length;
+                let ray = "卌 ".repeat(Math.floor(total/5)) + "|".repeat(total%5) || "Sin capotes";
+                let botonAdmin = (rolActual === "admin") ? `<button class="btn-capote" onclick="sumarCapote('${j.id}')">+ CAPOTE</button>` : "";
 
                 html += `<div class="card">
-                    <div class="flex" style="align-items: center;">
-                        <div onclick="document.getElementById('hist-${i}').style.display = (document.getElementById('hist-${i}').style.display === 'block' ? 'none' : 'block')" style="flex-grow:1; cursor:pointer;">
+                    <div class="flex">
+                        <div onclick="document.getElementById('hist-${i}').style.display = (document.getElementById('hist-${i}').style.display === 'block' ? 'none' : 'block')" style="flex-grow:1">
                             <span class="nombre">${j.n}</span>
-                            <div class="rayitas" id="rayas-${j.id}">${ray} (${totalRecibidos})</div>
-                            <div class="stats-container" id="stats-${j.id}">
-                                💀 ${totalRecibidos} &nbsp;&nbsp;&nbsp;&nbsp; 👟 ${totalDados} &nbsp;&nbsp;&nbsp;&nbsp; 🏆 ${totalPartidas}
-                            </div>
+                            <div class="rayitas">${ray} (${total})</div>
                         </div>
-                        ${botonesAdmin}
+                        ${botonAdmin}
                     </div>
                     <div class="historial" id="hist-${i}">
                         <strong>Días que le metieron las 75:</strong><br>
-                        ${totalRecibidos > 0 ? j.f.map(f => "💀 " + f.split(" - ")[0]).join("<br>") : "Limpio por ahora."}
+                        ${j.f.length > 0 ? j.f.map(f => "💀 " + f).join("<br>") : "Limpio por ahora."}
                     </div>
                 </div>`;
             });
@@ -188,16 +118,7 @@
         .flex { display: flex; justify-content: space-between; align-items: center; }
         .nombre { font-size: 1.2rem; font-weight: bold; color: #58a6ff; text-transform: uppercase; }
         .rayitas { color: #f1e05a; font-size: 1.3rem; letter-spacing: 2px; margin-top: 5px; }
-        
-        /* Nuevos Estilos para las Estadísticas y Botones */
-        .stats-container { color: #c9d1d9; font-size: 1rem; margin-top: 8px; font-weight: 500; }
-        .admin-actions { display: flex; gap: 6px; }
-        .btn-stat { color: white; border: none; padding: 10px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.9rem; transition: opacity 0.2s; }
-        .btn-stat:hover { opacity: 0.85; }
-        .btn-recibido { background: #da3633; }
-        .btn-dado { background: #238636; }
-        .btn-partida { background: #1f6feb; }
-
+        .btn-capote { background: #da3633; color: white; border: none; padding: 12px 18px; border-radius: 8px; font-weight: bold; cursor: pointer; }
         input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #30363d; background: #161b22; color: white; font-size: 1rem; }
         .btn-entrar { background: #f85149; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; width: 92%; cursor: pointer; }
         .historial { display: none; font-size: 0.85rem; color: #8b949e; margin-top: 10px; padding: 10px; border-top: 1px dotted #30363d; background: #0d1117; }
