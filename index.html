@@ -26,7 +26,6 @@
         window.validarAcceso = () => {
             const u = document.getElementById('user').value.trim().toLowerCase();
             const p = document.getElementById('pass').value.trim();
-            // Actualizadas a tus nuevas contraseñas seguras para evitar bloqueos de Google
             if (u === "admin" && p === "12345678910") { rolActual = "admin"; abrirApp(); }
             else if (u === "jugador" && p === "123456789") { rolActual = "jugador"; abrirApp(); }
             else { alert("Usuario o clave incorrectos"); }
@@ -43,16 +42,23 @@
         window.nuevo = async () => {
             let n = document.getElementById('nom').value.trim();
             if(n) {
-                await addDoc(jugadoresCol, { n: n, f: [], t: Date.now() });
+                await addDoc(jugadoresCol, { n: n, f: [], dados: [], partidas: [], t: Date.now() });
                 document.getElementById('nom').value = "";
             }
         };
 
-        window.sumarCapote = async (id) => {
+        window.sumarRecibido = async (id) => {
             let d = new Date();
             let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes();
             const ref = doc(db, "jugadores_albarico", id);
             await updateDoc(ref, { f: arrayUnion(fecha) });
+        };
+
+        window.sumarDado = async (id) => {
+            let d = new Date();
+            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes();
+            const ref = doc(db, "jugadores_albarico", id);
+            await updateDoc(ref, { dados: arrayUnion(fecha) });
         };
 
         window.reseteo = async () => {
@@ -63,20 +69,16 @@
         };
 
         function escucharDatos() {
-            // Se añade el manejador de errores para detectar si Firebase bloquea la conexión
             onSnapshot(jugadoresCol, (snapshot) => {
                 let lista = [];
                 snapshot.forEach(doc => lista.push({id: doc.id, ...doc.data()}));
-                lista.sort((a, b) => b.f.length - a.f.length);
+                lista.sort((a, b) => (b.f ? b.f.length : 0) - (a.f ? a.f.length : 0));
                 dibujar(lista);
             }, (error) => {
                 console.error("Error en Firebase: ", error);
                 document.getElementById('lista').innerHTML = `
                     <p style='text-align:center; color:#f85149; font-weight:bold; padding:20px;'>
-                        ⚠️ Error de conexión con la base de datos.<br>
-                        <span style='color:#8b949e; font-weight:normal; font-size:0.9rem;'>
-                            Es muy probable que las Reglas de Seguridad de tu consola Firebase hayan expirado (Modo Prueba de 30 días).
-                        </span>
+                        ⚠️ Error de conexión con la base de datos.
                     </p>`;
             });
         }
@@ -84,21 +86,41 @@
         function dibujar(datos) {
             let html = "";
             datos.forEach((j, i) => {
-                let total = j.f.length;
-                let ray = "卌 ".repeat(Math.floor(total/5)) + "|".repeat(total%5) || "Sin capotes";
-                let botonAdmin = (rolActual === "admin") ? `<button class="btn-capote" onclick="sumarCapote('${j.id}')">+ CAPOTE</button>` : "";
+                let totalR = j.f ? j.f.length : 0;
+                let rayR = "卌 ".repeat(Math.floor(totalR/5)) + "|".repeat(totalR%5) || "0";
+
+                let totalD = j.dados ? j.dados.length : 0;
+                let rayD = "卌 ".repeat(Math.floor(totalD/5)) + "|".repeat(totalD%5) || "0";
+
+                let botonesAdmin = (rolActual === "admin") ? 
+                    `<div class="botones-container">
+                        <button class="btn-dado" onclick="sumarDado('${j.id}')">+ DADO</button>
+                        <button class="btn-capote" onclick="sumarRecibido('${j.id}')">+ RECIBIDO</button>
+                    </div>` : "";
 
                 html += `<div class="card">
                     <div class="flex">
-                        <div onclick="document.getElementById('hist-${i}').style.display = (document.getElementById('hist-${i}').style.display === 'block' ? 'none' : 'block')" style="flex-grow:1">
+                        <div onclick="document.getElementById('hist-${i}').style.display = (document.getElementById('hist-${i}').style.display === 'block' ? 'none' : 'block')" style="flex-grow:1; cursor:pointer;">
                             <span class="nombre">${j.n}</span>
-                            <div class="rayitas">${ray} (${total})</div>
+                            
+                            <div style="margin-top: 8px;">
+                                <span style="color: #2ea043; font-size: 0.8rem; font-weight: bold;">CAPOTES DADOS:</span>
+                                <div class="rayitas" style="color: #2ea043;">${rayD} (${totalD})</div>
+                            </div>
+                            
+                            <div style="margin-top: 8px;">
+                                <span style="color: #f85149; font-size: 0.8rem; font-weight: bold;">CAPOTES RECIBIDOS:</span>
+                                <div class="rayitas" style="color: #f85149;">${rayR} (${totalR})</div>
+                            </div>
                         </div>
-                        ${botonAdmin}
+                        ${botonesAdmin}
                     </div>
                     <div class="historial" id="hist-${i}">
-                        <strong>Días que le metieron las 75:</strong><br>
-                        ${j.f.length > 0 ? j.f.map(f => "💀 " + f).join("<br>") : "Limpio por ahora."}
+                        <strong style="color: #2ea043;">Días que dio zapatera (Dados):</strong><br>
+                        ${j.dados && j.dados.length > 0 ? j.dados.map(d => "🔥 " + d).join("<br>") : "No ha dado capotes."}
+                        <br><br>
+                        <strong style="color: #f85149;">Días que le metieron las 75 (Recibidos):</strong><br>
+                        ${j.f && j.f.length > 0 ? j.f.map(f => "💀 " + f).join("<br>") : "Limpio por ahora."}
                     </div>
                 </div>`;
             });
@@ -117,11 +139,13 @@
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 15px; margin-bottom: 12px; }
         .flex { display: flex; justify-content: space-between; align-items: center; }
         .nombre { font-size: 1.2rem; font-weight: bold; color: #58a6ff; text-transform: uppercase; }
-        .rayitas { color: #f1e05a; font-size: 1.3rem; letter-spacing: 2px; margin-top: 5px; }
-        .btn-capote { background: #da3633; color: white; border: none; padding: 12px 18px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .rayitas { font-size: 1.2rem; letter-spacing: 2px; margin-top: 2px; }
+        .botones-container { display: flex; flex-direction: column; gap: 8px; width: 100px; }
+        .btn-capote { background: #da3633; color: white; border: none; padding: 10px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
+        .btn-dado { background: #238636; color: white; border: none; padding: 10px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
         input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #30363d; background: #161b22; color: white; font-size: 1rem; }
         .btn-entrar { background: #f85149; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; width: 92%; cursor: pointer; }
-        .historial { display: none; font-size: 0.85rem; color: #8b949e; margin-top: 10px; padding: 10px; border-top: 1px dotted #30363d; background: #0d1117; }
+        .historial { display: none; font-size: 0.85rem; color: #8b949e; margin-top: 15px; padding: 10px; border-top: 1px dotted #30363d; background: #0d1117; }
         #admin-ui { display: none; background:#1c2128; padding:15px; border-radius:10px; margin-top:20px; border: 1px solid #f85149; }
         #app-content { display: none; }
     </style>
