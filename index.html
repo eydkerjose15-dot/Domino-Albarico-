@@ -29,8 +29,8 @@
         window.validarAcceso = () => {
             const u = document.getElementById('user').value.trim().toLowerCase();
             const p = document.getElementById('pass').value.trim();
-            if (u === "admin" && p === "12345") { rolActual = "admin"; abrirApp(); }
-            else if (u === "jugador" && p === "1234") { rolActual = "jugador"; abrirApp(); }
+            if (u === "admin" && p === "12345678910") { rolActual = "admin"; abrirApp(); }
+            else if (u === "jugador" && p === "123456789") { rolActual = "jugador"; abrirApp(); }
             else { alert("Usuario o clave incorrectos"); }
         };
 
