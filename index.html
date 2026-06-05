@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -6,7 +7,7 @@
     <title>Dominó de Albarico</title>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, updateDoc, doc, arrayUnion, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, updateDoc, doc, arrayUnion, deleteDoc, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyA_4QmxxzA2ui9cNSu_2G1i-b2N-QqjdJc",
@@ -49,16 +50,42 @@
 
         window.sumarRecibido = async (id) => {
             let d = new Date();
-            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes();
+            // CORRECCIÓN: Se añadieron los segundos para que arrayUnion no bloquee clicks rápidos en el mismo minuto
+            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes() + ":" + (d.getSeconds()<10?'0':'') + d.getSeconds();
             const ref = doc(db, "jugadores_albarico", id);
             await updateDoc(ref, { f: arrayUnion(fecha) });
         };
 
         window.sumarDado = async (id) => {
             let d = new Date();
-            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes();
+            // CORRECCIÓN: Se añadieron los segundos para evitar duplicados exactos
+            let fecha = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes() + ":" + (d.getSeconds()<10?'0':'') + d.getSeconds();
             const ref = doc(db, "jugadores_albarico", id);
             await updateDoc(ref, { dados: arrayUnion(fecha) });
+        };
+
+        window.restarDado = async (id) => {
+            if(confirm("¿Quieres restar el último capote dado agregado por error?")) {
+                const ref = doc(db, "jugadores_albarico", id);
+                const docSnap = await getDoc(ref);
+                if (docSnap.exists() && docSnap.data().dados && docSnap.data().dados.length > 0) {
+                    let nuevosDados = [...docSnap.data().dados];
+                    nuevosDados.pop(); 
+                    await updateDoc(ref, { dados: nuevosDados });
+                }
+            }
+        };
+
+        window.restarRecibido = async (id) => {
+            if(confirm("¿Quieres restar el último capote recibido agregado por error?")) {
+                const ref = doc(db, "jugadores_albarico", id);
+                const docSnap = await getDoc(ref);
+                if (docSnap.exists() && docSnap.data().f && docSnap.data().f.length > 0) {
+                    let nuevosRecibidos = [...docSnap.data().f];
+                    nuevosRecibidos.pop(); 
+                    await updateDoc(ref, { f: nuevosRecibidos });
+                }
+            }
         };
 
         window.reseteo = async () => {
@@ -76,10 +103,7 @@
                 dibujar(lista);
             }, (error) => {
                 console.error("Error en Firebase: ", error);
-                document.getElementById('lista').innerHTML = `
-                    <p style='text-align:center; color:#f85149; font-weight:bold; padding:20px;'>
-                        ⚠️ Error de conexión con la base de datos.
-                    </p>`;
+                document.getElementById('lista').innerHTML = `<p style='text-align:center; color:#f85149; font-weight:bold; padding:20px;'>⚠️ Error de conexión con la base de datos.</p>`;
             });
         }
 
@@ -95,7 +119,10 @@
                 let botonesAdmin = (rolActual === "admin") ? 
                     `<div class="botones-container">
                         <button class="btn-dado" onclick="sumarDado('${j.id}')">+ DADO</button>
+                        <button class="btn-restar" onclick="restarDado('${j.id}')">- DADO</button>
+                        <div style="margin-top:4px; border-top:1px dotted #30363d;"></div>
                         <button class="btn-capote" onclick="sumarRecibido('${j.id}')">+ RECIBIDO</button>
+                        <button class="btn-restar" onclick="restarRecibido('${j.id}')">- RECIBIDO</button>
                     </div>` : "";
 
                 html += `<div class="card">
@@ -104,8 +131,8 @@
                             <span class="nombre">${j.n}</span>
                             
                             <div style="margin-top: 8px;">
-                                <span style="color: #2ea043; font-size: 0.8rem; font-weight: bold;">CAPOTES DADOS:</span>
-                                <div class="rayitas" style="color: #2ea043;">${rayD} (${totalD})</div>
+                                <span style="color: #58a6ff; font-size: 0.8rem; font-weight: bold;">CAPOTES DADOS (AZUL):</span>
+                                <div class="rayitas" style="color: #58a6ff;">${rayD} (${totalD})</div>
                             </div>
                             
                             <div style="margin-top: 8px;">
@@ -116,8 +143,8 @@
                         ${botonesAdmin}
                     </div>
                     <div class="historial" id="hist-${i}">
-                        <strong style="color: #2ea043;">Días que dio zapatera (Dados):</strong><br>
-                        ${j.dados && j.dados.length > 0 ? j.dados.map(d => "🔥 " + d).join("<br>") : "No ha dado capotes."}
+                        <strong style="color: #58a6ff;">Días que dio zapatera (Dados):</strong><br>
+                        ${j.dados && j.dados.length > 0 ? j.dados.map(d => "🔷 " + d).join("<br>") : "No ha dado capotes."}
                         <br><br>
                         <strong style="color: #f85149;">Días que le metieron las 75 (Recibidos):</strong><br>
                         ${j.f && j.f.length > 0 ? j.f.map(f => "💀 " + f).join("<br>") : "Limpio por ahora."}
@@ -138,11 +165,13 @@
         .fichas-container { font-size: 55px; margin-bottom: 15px; display: flex; justify-content: center; gap: 15px; }
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 15px; margin-bottom: 12px; }
         .flex { display: flex; justify-content: space-between; align-items: center; }
-        .nombre { font-size: 1.2rem; font-weight: bold; color: #58a6ff; text-transform: uppercase; }
+        .nombre { font-size: 1.2rem; font-weight: bold; color: #f1e05a; text-transform: uppercase; }
         .rayitas { font-size: 1.2rem; letter-spacing: 2px; margin-top: 2px; }
-        .botones-container { display: flex; flex-direction: column; gap: 8px; width: 100px; }
-        .btn-capote { background: #da3633; color: white; border: none; padding: 10px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
-        .btn-dado { background: #238636; color: white; border: none; padding: 10px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
+        .botones-container { display: flex; flex-direction: column; gap: 4px; width: 110px; }
+        .btn-capote { background: #da3633; color: white; border: none; padding: 8px 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.75rem; }
+        .btn-dado { background: #58a6ff; color: #0d1117; border: none; padding: 8px 10px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.75rem; }
+        .btn-restar { background: #21262d; color: #8b949e; border: 1px solid #30363d; padding: 4px 10px; border-radius: 6px; font-weight: normal; cursor: pointer; font-size: 0.65rem; text-transform: uppercase; }
+        .btn-restar:hover { background: #f85149; color: white; border-color: #f85149; }
         input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #30363d; background: #161b22; color: white; font-size: 1rem; }
         .btn-entrar { background: #f85149; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; width: 92%; cursor: pointer; }
         .historial { display: none; font-size: 0.85rem; color: #8b949e; margin-top: 15px; padding: 10px; border-top: 1px dotted #30363d; background: #0d1117; }
